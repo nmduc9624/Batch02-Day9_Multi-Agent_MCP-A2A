@@ -296,6 +296,12 @@ def write_static_sections() -> None:
     write("- Use a faster model for specialist agents.")
     write("- Preserve LangGraph parallel delegation with `Send()`.")
     write()
+    write("### Optional Challenge Completed - Retry Logic")
+    write("- Selected optional challenge: **Implement retry logic**.")
+    write("- Implemented in `common/a2a_client.py`.")
+    write("- A2A delegation retries up to 3 attempts with exponential backoff: 1s, then 2s.")
+    write("- Retry attempts preserve `trace_id`, `context_id`, and `delegation_depth` metadata.")
+    write()
 
 
 def main() -> None:

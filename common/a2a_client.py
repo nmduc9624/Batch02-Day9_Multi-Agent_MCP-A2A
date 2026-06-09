@@ -6,6 +6,7 @@ sends a message to another A2A agent and returns the text response.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from uuid import uuid4
 
@@ -23,6 +24,9 @@ from a2a.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+RETRY_ATTEMPTS = 3
+RETRY_INITIAL_DELAY_SECONDS = 1.0
 
 
 async def delegate(
@@ -44,42 +48,68 @@ async def delegate(
     Returns:
         The agent's text response, or an empty string if none could be extracted.
     """
-    async with httpx.AsyncClient(timeout=300.0) as http_client:
-        # Fetch agent card
-        card_url = f"{endpoint}/.well-known/agent.json"
-        card_resp = await http_client.get(card_url)
-        card_resp.raise_for_status()
-        agent_card = AgentCard.model_validate(card_resp.json())
+    delay = RETRY_INITIAL_DELAY_SECONDS
+    last_error: Exception | None = None
 
-        # Build deprecated (legacy) A2AClient — straightforward for send_message
-        client = A2AClient(httpx_client=http_client, agent_card=agent_card)
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as http_client:
+                # Fetch agent card
+                card_url = f"{endpoint}/.well-known/agent.json"
+                card_resp = await http_client.get(card_url)
+                card_resp.raise_for_status()
+                agent_card = AgentCard.model_validate(card_resp.json())
 
-        # Build message with trace metadata
-        message = Message(
-            role=Role.user,
-            parts=[Part(root=TextPart(text=question))],
-            message_id=str(uuid4()),
-            context_id=context_id,
-            metadata={
-                "trace_id": trace_id,
-                "context_id": context_id,
-                "delegation_depth": depth,
-            },
-        )
+                # Build deprecated (legacy) A2AClient — straightforward for send_message
+                client = A2AClient(httpx_client=http_client, agent_card=agent_card)
 
-        request = SendMessageRequest(
-            id=str(uuid4()),
-            params=MessageSendParams(message=message),
-        )
+                # Build message with trace metadata
+                message = Message(
+                    role=Role.user,
+                    parts=[Part(root=TextPart(text=question))],
+                    message_id=str(uuid4()),
+                    context_id=context_id,
+                    metadata={
+                        "trace_id": trace_id,
+                        "context_id": context_id,
+                        "delegation_depth": depth,
+                    },
+                )
 
-        logger.debug(
-            "Delegating to %s (depth=%d, trace=%s)", endpoint, depth, trace_id
-        )
+                request = SendMessageRequest(
+                    id=str(uuid4()),
+                    params=MessageSendParams(message=message),
+                )
 
-        response = await client.send_message(request)
+                logger.debug(
+                    "Delegating to %s (depth=%d, trace=%s, attempt=%d/%d)",
+                    endpoint,
+                    depth,
+                    trace_id,
+                    attempt,
+                    RETRY_ATTEMPTS,
+                )
 
-        # Extract text from SendMessageResponse
-        return _extract_text(response)
+                response = await client.send_message(request)
+                return _extract_text(response)
+        except Exception as exc:
+            last_error = exc
+            if attempt == RETRY_ATTEMPTS:
+                break
+            logger.warning(
+                "A2A delegate to %s failed on attempt %d/%d (trace=%s): %s; retrying in %.1fs",
+                endpoint,
+                attempt,
+                RETRY_ATTEMPTS,
+                trace_id,
+                exc,
+                delay,
+            )
+            await asyncio.sleep(delay)
+            delay *= 2
+
+    assert last_error is not None
+    raise last_error
 
 
 def _extract_text(response: object) -> str:

@@ -88,6 +88,13 @@ sequenceDiagram
 - Cache Registry discovery results for `tax_question`, `compliance_question`, and `legal_question`.
 - Use a faster model for specialist agents.
 - Preserve LangGraph parallel delegation with `Send()`.
+
+### Optional Challenge Completed - Retry Logic
+- Selected optional challenge: **Implement retry logic**.
+- Implemented in `common/a2a_client.py`.
+- A2A delegation now retries up to 3 attempts with exponential backoff: 1s, then 2s.
+- Each retry keeps the same `trace_id`, `context_id`, and `delegation_depth` metadata so failures remain traceable.
+- This is low risk because it only wraps outbound A2A calls; it does not alter graph topology, prompts, Registry data, or agent cards.
 ## Captured Runs
 ### Syntax check
 ```powershell
@@ -647,3 +654,4 @@ Services were already running in external VS Code terminals, so this script coul
 - [x] Stage 5.1 trace request flow documented
 - [x] Stage 5.2 dynamic discovery / Tax Agent failure test completed
 - [x] Tax Agent behavior update recorded
+- [x] Optional challenge completed: A2A retry logic with exponential backoff
